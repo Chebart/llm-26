@@ -1,0 +1,17 @@
+# Локальное окружение, данные, результаты и тесты.
+/.venv/
+/data/
+/results/
+/source/tests/
+
+# Служебные файлы Python и инструментов проверки.
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+
+# Локальные переменные окружения; пример настроек можно хранить в Git.
+.env
+.env.*
+!.env.example

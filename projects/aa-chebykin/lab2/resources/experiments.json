@@ -1,0 +1,7 @@
+[
+  {"name": "hybrid_200", "overrides": {"chunk_size": 200, "overlap": 30}},
+  {"name": "hybrid_400", "overrides": {"chunk_size": 400, "overlap": 60}},
+  {"name": "hybrid_700", "overrides": {"chunk_size": 700, "overlap": 100}},
+  {"name": "dense_400", "overrides": {"chunk_size": 400, "overlap": 60, "vectorization": "dense"}},
+  {"name": "sparse_400", "overrides": {"chunk_size": 400, "overlap": 60, "vectorization": "sparse"}}
+]

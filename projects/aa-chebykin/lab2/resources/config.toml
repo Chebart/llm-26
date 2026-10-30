@@ -1,0 +1,40 @@
+corpus_pdf = "01_raw/postgres-17.11-ru.pdf"
+corpus_url = "https://repo.postgrespro.ru/doc/pgsql/17.11/ru/postgres-A4.pdf"
+page_start = 30
+page_end = 89
+
+splitter = "markdown_recursive"
+chunk_size = 200
+overlap = 30
+include_headings = true
+vectorization = "hybrid"
+embedding_model = "models/giga-embeddings-480m"
+embedding_repo = "ai-sage/Giga-Embeddings-instruct-480M-0826"
+embedding_revision = "1763d603adac8057bd6482a708001b0ed2e0a903"
+embedding_device = "cuda"
+embedding_batch_size = 4
+embedding_max_tokens = 1024
+query_instruction = "Instruct: Given a question about PostgreSQL, retrieve relevant documentation passages that answer the question\nQuery: "
+bm25_language = "russian"
+bm25_k = 1.2
+bm25_b = 0.75
+bm25_avg_len = 256.0
+
+qdrant_url = "http://127.0.0.1:6333"
+collection_prefix = "postgres17"
+hnsw_m = 16
+ef_construction = 100
+ef_search = 64
+full_scan_threshold = 10
+top_k = 3
+prefetch_k = 40
+
+llm_url = "http://127.0.0.1:8080"
+llm_model = "qwen3-4b-instruct-2507"
+llm_context_size = 4096
+max_answer_tokens = 512
+llm_timeout = 240.0
+temperature = 0.7
+llm_top_p = 0.8
+llm_top_k = 20
+llm_min_p = 0.0

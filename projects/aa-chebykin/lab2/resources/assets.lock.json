@@ -1,0 +1,25 @@
+{
+  "corpus": {
+    "url": "https://repo.postgrespro.ru/doc/pgsql/17.11/ru/postgres-A4.pdf",
+    "sha256": "8ee2b13bceb2c144f67f4529587054f726d19f9e1e2bdbe5002a4cdf6f65f4ca",
+    "physical_pages": [30, 89],
+    "document_version": "PostgreSQL 17.11, Russian translation"
+  },
+  "embeddings": {
+    "repository": "ai-sage/Giga-Embeddings-instruct-480M-0826",
+    "revision": "1763d603adac8057bd6482a708001b0ed2e0a903"
+  },
+  "llm": {
+    "repository": "unsloth/Qwen3-4B-Instruct-2507-GGUF",
+    "revision": "a06e946bb6b655725eafa393f4a9745d460374c9",
+    "filename": "Qwen3-4B-Instruct-2507-Q4_K_M.gguf",
+    "sha256": "3605803b982cb64aead44f6c1b2ae36e3acdb41d8e46c8a94c6533bc4c67e597"
+  },
+  "llama_cpp": {
+    "release": "b11960",
+    "files": {
+      "llama-b11960-bin-win-cuda-12.4-x64.zip": "8d9d819261de10cc2f03921b8b79c779c5c458e21edb60c170ee30a7d462d684",
+      "cudart-llama-bin-win-cuda-12.4-x64.zip": "8c79a9b226de4b3cacfd1f83d24f962d0773be79f1e7b75c6af4ded7e32ae1d6"
+    }
+  }
+}
