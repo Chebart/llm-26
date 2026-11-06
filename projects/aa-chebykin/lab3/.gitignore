@@ -1,0 +1,10 @@
+.env
+.venv/
+data/
+results/
+source/tests/
+source/.pytest_cache/
+source/*.egg-info/
+**/__pycache__/
+pi/node_modules/
+.ruff_cache/

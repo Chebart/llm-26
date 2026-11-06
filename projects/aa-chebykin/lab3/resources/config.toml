@@ -1,0 +1,62 @@
+[model]
+id = "deepseek/deepseek-v4.1-flash"
+base_url = "https://polza.ai/api/v1"
+temperature = 0.0
+max_output_tokens = 2048
+reasoning_effort = "none"
+context_window = 131072
+timeout_seconds = 90
+# Снимок публичного каталога 2026-11-05, RUB за миллион токенов; обновить перед прогоном.
+input_price = 5.1794784
+output_price = 20.7179136
+cache_price = 0.10358957
+
+[context]
+max_input_tokens = 8192
+keep_recent_turns = 3
+strategy = "tiered"
+# Native tokenizer и шаблон; запас до сверки с серверным usage оставляем прежним.
+tokenizer = "deepseek-ai/DeepSeek-V4.1-Flash"
+tokenizer_revision = "314113f8a7dadb388215396ba5fbee2c610a04d6"
+estimate_margin = 1.3
+summary_tokens = 512
+
+[agent]
+max_steps = 12
+max_llm_calls = 24
+api_max_retries = 1
+turn_timeout_seconds = 240
+tool_timeout_seconds = 30
+
+[tools]
+host = "127.0.0.1"
+port = 8765
+max_rows = 100
+statement_timeout_ms = 5000
+
+[retrieval]
+corpus_url = "https://repo.postgrespro.ru/doc/pgsql/17.11/ru/postgres-A4.pdf"
+corpus_sha256 = "8ee2b13bceb2c144f67f4529587054f726d19f9e1e2bdbe5002a4cdf6f65f4ca"
+page_start = 30
+page_end = 89
+chunk_tokens = 200
+overlap_tokens = 30
+embedding_repo = "ai-sage/Giga-Embeddings-instruct-480M-0826"
+embedding_revision = "1763d603adac8057bd6482a708001b0ed2e0a903"
+embedding_device = "cpu"
+embedding_threads = 6
+query_instruction = "Instruct: Given a question about PostgreSQL, retrieve relevant documentation passages that answer the question\nQuery: "
+collection = "lab3_postgres17"
+prefetch_k = 40
+top_k = 5
+lab2_commit = "8f0018e54b8102e9433433f85079fc2f9bada870"
+
+[pi]
+provider = "polza"
+keep_recent_tokens = 2048
+
+[evaluation]
+max_cost_rub = 20.0
+user_id = "student"
+langfuse_project_id = "postgres-agents"
+profiles = ["custom-trim", "custom-tiered", "pi"]

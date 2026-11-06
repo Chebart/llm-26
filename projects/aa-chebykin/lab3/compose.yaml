@@ -1,0 +1,113 @@
+name: lab3
+
+services:
+  postgres:
+    image: postgres:17.6-alpine
+    environment:
+      POSTGRES_USER: labadmin
+      POSTGRES_PASSWORD: labadmin_local
+      POSTGRES_DB: lab3
+    ports: ["127.0.0.1:5433:5432"]
+    volumes:
+      - exercise_pg:/var/lib/postgresql/data
+      - ./resources/database.sql:/docker-entrypoint-initdb.d/01-database.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U labadmin -d lab3"]
+      interval: 5s
+      retries: 20
+
+  qdrant:
+    image: qdrant/qdrant:v1.20.0
+    ports: ["127.0.0.1:6335:6333"]
+    volumes: ["qdrant_data:/qdrant/storage"]
+
+  clickhouse:
+    image: clickhouse/clickhouse-server:25.3.6.56
+    environment:
+      CLICKHOUSE_USER: clickhouse
+      CLICKHOUSE_PASSWORD: clickhouse_local
+      CLICKHOUSE_DB: default
+    volumes: ["clickhouse_data:/var/lib/clickhouse"]
+    healthcheck:
+      test: ["CMD-SHELL", "clickhouse-client --user clickhouse --password clickhouse_local --query 'SELECT 1'"]
+      interval: 5s
+      retries: 30
+
+  redis:
+    image: redis:7.4.5-alpine
+    command: ["redis-server", "--requirepass", "redis_local"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "redis_local", "ping"]
+      interval: 5s
+      retries: 20
+
+  minio:
+    image: cgr.dev/chainguard/minio@sha256:cee9a8e35885e93f14b3cb32960e5017aff74e2adfb52ba87c65003b0163886b
+    entrypoint: sh
+    command: -c 'mkdir -p /data/langfuse && minio server --address :9000 /data'
+    environment:
+      MINIO_ROOT_USER: minio
+      MINIO_ROOT_PASSWORD: minio_local_password
+    volumes: ["minio_data:/data"]
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 5s
+      retries: 30
+
+  langfuse-worker:
+    image: langfuse/langfuse-worker:3.131.0
+    depends_on: &lf-dependencies
+      postgres: {condition: service_healthy}
+      clickhouse: {condition: service_healthy}
+      redis: {condition: service_healthy}
+      minio: {condition: service_healthy}
+    environment: &lf-environment
+      DATABASE_URL: postgresql://langfuse:langfuse_local@postgres:5432/langfuse
+      NEXTAUTH_URL: http://localhost:3000
+      SALT: lab3-local-salt-not-for-deployment
+      ENCRYPTION_KEY: 5a6ed32c2036b995054e2b6b09bbf3e7e8361c5cf6408f35c23946193fd2c5a0
+      TELEMETRY_ENABLED: "false"
+      CLICKHOUSE_MIGRATION_URL: clickhouse://clickhouse:9000
+      CLICKHOUSE_URL: http://clickhouse:8123
+      CLICKHOUSE_USER: clickhouse
+      CLICKHOUSE_PASSWORD: clickhouse_local
+      CLICKHOUSE_CLUSTER_ENABLED: "false"
+      REDIS_HOST: redis
+      REDIS_PORT: "6379"
+      REDIS_AUTH: redis_local
+      LANGFUSE_S3_EVENT_UPLOAD_BUCKET: langfuse
+      LANGFUSE_S3_EVENT_UPLOAD_REGION: auto
+      LANGFUSE_S3_EVENT_UPLOAD_ACCESS_KEY_ID: minio
+      LANGFUSE_S3_EVENT_UPLOAD_SECRET_ACCESS_KEY: minio_local_password
+      LANGFUSE_S3_EVENT_UPLOAD_ENDPOINT: http://minio:9000
+      LANGFUSE_S3_EVENT_UPLOAD_FORCE_PATH_STYLE: "true"
+      LANGFUSE_S3_EVENT_UPLOAD_PREFIX: events/
+      LANGFUSE_S3_MEDIA_UPLOAD_BUCKET: langfuse
+      LANGFUSE_S3_MEDIA_UPLOAD_REGION: auto
+      LANGFUSE_S3_MEDIA_UPLOAD_ACCESS_KEY_ID: minio
+      LANGFUSE_S3_MEDIA_UPLOAD_SECRET_ACCESS_KEY: minio_local_password
+      LANGFUSE_S3_MEDIA_UPLOAD_ENDPOINT: http://minio:9000
+      LANGFUSE_S3_MEDIA_UPLOAD_FORCE_PATH_STYLE: "true"
+
+  langfuse:
+    image: langfuse/langfuse:3.131.0
+    ports: ["127.0.0.1:3000:3000"]
+    depends_on: *lf-dependencies
+    environment:
+      <<: *lf-environment
+      NEXTAUTH_SECRET: lab3-local-auth-secret-not-for-deployment
+      LANGFUSE_INIT_ORG_ID: lab3
+      LANGFUSE_INIT_ORG_NAME: Lab3
+      LANGFUSE_INIT_PROJECT_ID: postgres-agents
+      LANGFUSE_INIT_PROJECT_NAME: PostgreSQL agents
+      LANGFUSE_INIT_PROJECT_PUBLIC_KEY: ${LANGFUSE_PUBLIC_KEY:-pk-lf-lab3-local}
+      LANGFUSE_INIT_PROJECT_SECRET_KEY: ${LANGFUSE_SECRET_KEY:-sk-lf-lab3-local}
+      LANGFUSE_INIT_USER_EMAIL: student@example.test
+      LANGFUSE_INIT_USER_NAME: Student
+      LANGFUSE_INIT_USER_PASSWORD: lab3-local-password
+
+volumes:
+  exercise_pg:
+  qdrant_data:
+  clickhouse_data:
+  minio_data:
