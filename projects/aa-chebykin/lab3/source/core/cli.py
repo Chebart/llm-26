@@ -3,8 +3,13 @@ import json
 import os
 import secrets
 import shutil
+import signal
+import socket
+import subprocess
 import sys
+import time
 import uuid
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Annotated
 
@@ -13,7 +18,7 @@ import typer
 import uvicorn
 
 from core.agent import CustomAgent
-from core.config import ROOT, load_settings, refresh_model
+from core.config import ROOT, Settings, load_settings, refresh_model
 from core.evaluation import compare_runs, load_tasks, rows_match, run_dataset
 from core.pi import PiAgent
 from core.retrieval import Retriever
@@ -46,7 +51,9 @@ def init_env() -> None:
 @app.command()
 def doctor(config: ConfigOption = None) -> None:
     settings = load_settings(config)
-    node = shutil.which("node") or str(settings.runtime / "node/node.exe")
+    node = os.getenv("LAB3_NODE") or shutil.which("node")
+    if not node and os.name == "nt":
+        node = str(settings.runtime / "node/node.exe")
     show(
         {
             "python": sys.version,
@@ -280,6 +287,161 @@ def compare(
     target = output or settings.root / "results/09_report"
     result = compare_runs(runs, target)
     show({"output": target, "comparable": result["comparable"], "complete": result["complete"]})
+
+
+def wait_for_tools(settings: Settings, process: subprocess.Popen, log: Path) -> None:
+    deadline = time.monotonic() + 60
+    headers = {"Authorization": f"Bearer {os.environ['LAB3_TOOL_TOKEN']}"}
+
+    with httpx.Client(base_url=settings.tool_url, headers=headers, timeout=2) as client:
+        while time.monotonic() < deadline:
+            if process.poll() is not None:
+                raise RuntimeError(f"Tool server exited. See {log}")
+            try:
+                response = client.get("/health")
+                if response.status_code == 200 and response.json().get("status") == "ok":
+                    return
+            except httpx.HTTPError:
+                pass
+            time.sleep(0.5)
+
+    raise TimeoutError(f"Tool server did not become ready in 60 seconds. See {log}")
+
+
+@app.command()
+def run(
+    prepare_only: bool = False,
+    max_cost: float | None = None,
+    tasks: str = "",
+    config: ConfigOption = None,
+) -> None:
+    settings = load_settings(config)
+    budget = max_cost if max_cost is not None else settings.evaluation["max_cost_rub"]
+    if not 0 < budget < float("inf"):
+        raise typer.BadParameter("max-cost must be finite and positive")
+
+    selected = tasks.split(",") if tasks else None
+    available = {task.id for task in load_tasks(settings.root / "resources/tasks.json")}
+    if selected and set(selected) - available:
+        raise typer.BadParameter(f"Unknown tasks: {set(selected) - available}")
+
+    required = ["LAB3_TOOL_TOKEN"]
+    if not prepare_only:
+        required += ["POLZA_API_KEY", "LANGFUSE_PUBLIC_KEY", "LANGFUSE_SECRET_KEY"]
+        os.environ["LANGFUSE_ENABLED"] = "true"
+    missing = [name for name in required if not os.getenv(name)]
+    if missing:
+        raise typer.BadParameter(f"Set these variables in .env: {', '.join(missing)}")
+    if not shutil.which("docker"):
+        raise typer.BadParameter("Install Docker Desktop and start its engine")
+    if not prepare_only:
+        node = os.getenv("LAB3_NODE") or shutil.which("node")
+        if not node and os.name == "nt":
+            node = str(settings.runtime / "node/node.exe")
+        if not node or not Path(node).is_file():
+            raise typer.BadParameter("Install Node.js before running the Pi comparison")
+        if not (settings.root / "pi/node_modules/@earendil-works/pi-coding-agent").is_dir():
+            raise typer.BadParameter("Install Pi dependencies: npm ci --prefix pi")
+
+    # Существующий сервер не трогаем, чтобы не завершить чужой процесс.
+    if not prepare_only:
+        with socket.socket() as probe:
+            probe.settimeout(1)
+            if probe.connect_ex((settings.tools["host"], settings.tools["port"])) == 0:
+                raise typer.BadParameter("Tool port is busy. Stop the previous serve-tools process")
+
+    def command(arguments: list[str]) -> None:
+        subprocess.run(arguments, cwd=settings.root, check=True)
+
+    cli = [sys.executable, "-m", "core.cli"]
+    config_args = ["--config", str(config.resolve())] if config else []
+    typer.echo("[1/4] Docker")
+    command(["docker", "compose", "up", "-d", "--wait", "--wait-timeout", "180"])
+    command(
+        [
+            "docker",
+            "compose",
+            "exec",
+            "-T",
+            "postgres",
+            "psql",
+            "-U",
+            "labadmin",
+            "-d",
+            "lab3",
+            "-v",
+            "ON_ERROR_STOP=1",
+            "-f",
+            "/docker-entrypoint-initdb.d/01-database.sql",
+        ]
+    )
+
+    typer.echo("[2/4] Prepare data and check tools. No chat model calls.")
+    stages = ["prepare"]
+    if not (settings.data / "05_index/index.json").exists():
+        stages.append("index")
+    stages.extend(["verify-data", "validate", "check-dataset"])
+    for stage in stages:
+        command([*cli, stage, *config_args])
+    command([*cli, "smoke", "--retrieval", *config_args])
+    if prepare_only:
+        typer.echo("Preparation complete. No paid model calls were made.")
+        return
+
+    # Сервер принадлежит этому запуску и завершается даже при ошибке или Ctrl+C.
+    settings.checks.mkdir(parents=True, exist_ok=True)
+    stamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%S") + "-" + uuid.uuid4().hex[:6]
+    log = settings.checks / f"tools-{stamp}.log"
+    label = "pilot" if selected else "benchmark"
+    with log.open("w", encoding="utf-8") as output:
+        process = subprocess.Popen(
+            [*cli, "serve-tools", *config_args],
+            cwd=settings.root,
+            stdout=output,
+            stderr=subprocess.STDOUT,
+            creationflags=subprocess.CREATE_NEW_PROCESS_GROUP if os.name == "nt" else 0,
+        )
+        try:
+            wait_for_tools(settings, process, log)
+            typer.echo(
+                f"[3/4] Three profiles. Budget per profile: {budget:g} RUB. "
+                f"Total configured budget: {3 * budget:g} RUB."
+            )
+            runs = []
+            for profile in ("custom-trim", "custom-tiered", "pi"):
+                typer.echo(f"Starting {profile}")
+                path = asyncio.run(run_dataset(settings, profile, selected, budget, label))
+                typer.echo(str(path))
+                summary = json.loads((path / "summary.json").read_text(encoding="utf-8"))
+                if not summary["complete"]:
+                    raise RuntimeError(
+                        f"Incomplete run: {path}. Inspect its report before retrying"
+                    )
+                runs.append(path)
+
+            typer.echo("[4/4] Comparison")
+            target = settings.root / "results/09_report"
+            if selected:
+                target /= "pilot-" + stamp
+            result = compare_runs(runs, target)
+            typer.echo(f"Report: {target}")
+            if not result["comparable"]:
+                raise RuntimeError("Run conditions differ. See comparison.json")
+        finally:
+            if process.poll() is None:
+                # Uvicorn обрабатывает Ctrl+Break и успевает отправить накопленные traces.
+                if os.name == "nt":
+                    try:
+                        process.send_signal(signal.CTRL_BREAK_EVENT)
+                    except OSError:
+                        process.terminate()
+                else:
+                    process.terminate()
+                try:
+                    process.wait(timeout=10)
+                except subprocess.TimeoutExpired:
+                    process.kill()
+                    process.wait(timeout=5)
 
 
 async def smoke_check(config: Path | None, retrieval: bool) -> dict:

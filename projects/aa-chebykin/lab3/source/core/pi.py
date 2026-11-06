@@ -128,7 +128,7 @@ class PiAgent:
     async def start(self) -> None:
         node = os.getenv("LAB3_NODE") or shutil.which("node")
 
-        if not node:
+        if not node and os.name == "nt":
             local = self.settings.runtime / "node/node.exe"
             node = str(local) if local.exists() else None
 

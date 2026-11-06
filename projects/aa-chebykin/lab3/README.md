@@ -8,58 +8,114 @@
 
 ## Как запустить
 
-Все команды выполняются из `projects/aa-chebykin/lab3` в PowerShell. Нужны Python 3.12, uv, Docker Desktop с Linux containers и Node.js от 22.19. Для Docker желательно выделить 8–12 ГБ RAM. Это рекомендация, а не измеренный минимум. Эмбеддинги считаются на CPU в 6 потоков, их веса занимают около 1 ГБ.
+Все команды выполняются в Bash внутри Ubuntu в WSL. В Docker Desktop включите интеграцию с этим дистрибутивом. Нужны Python 3.12, uv и Linux-версия Node.js от 22.19. Для Docker желательно выделить 8–12 ГБ RAM. Это рекомендация, а не измеренный минимум. Эмбеддинги считаются на CPU в 6 потоков, их веса занимают около 1 ГБ.
 
-### Установка
+Откройте каталог лабораторной:
 
-```powershell
-$env:UV_PROJECT_ENVIRONMENT = "$PWD/.venv"
+```bash
+cd /mnt/d/projects/university/ITMO_labs/llm-26/projects/aa-chebykin/lab3
+```
+
+### Полный прогон одной командой
+
+При уже установленном окружении и заполненном `.env`:
+
+```bash
+bash run.sh
+```
+
+`run.sh` является короткой точкой входа. Он выбирает Linux-окружение, добавляет локальный Node в PATH и вызывает `python -m core.cli run`. Последовательность стадий реализована функцией `run()` в `source/core/cli.py`. Аргументы скрипта передаются этой команде без изменения. Поэтому Bash не дублирует управление процессами и обработку ошибок из Python.
+
+Скрипт поднимает Docker и ждёт готовности сервисов, применяет SQL-инициализацию, подготавливает данные и проверяет инструменты. Готовый индекс проверяется без пересчёта эмбеддингов. Затем скрипт запускает свой сервер инструментов, последовательно выполняет `custom-trim`, `custom-tiered` и `pi` и собирает сравнение в `results/09_report/`.
+
+По умолчанию выделено 20 рублей на каждый профиль, всего 60 рублей на три запуска. Это лимит учёта расходов в приложении. Langfuse включается автоматически, ключи берутся из `.env`. Отдельный терминал для сервера инструментов не нужен. Если старый `serve-tools` ещё работает, сначала завершите его через Ctrl+C в его терминале.
+
+Подготовка и проверки без платных обращений к чат-модели:
+
+```bash
+bash run.sh --prepare-only
+```
+
+Короткий пилот на одной задаче для всех трёх профилей, до 5 рублей на каждый:
+
+```bash
+bash run.sh --tasks docs-join --max-cost 5
+```
+
+Пилот сохраняется отдельно от benchmark и не заменяет полный датасет. Его сравнительный отчёт попадает в отдельный подкаталог `results/09_report/pilot-<id>/`.
+
+При ошибке подготовки, неполном прогоне или разных условиях сравнения скрипт останавливается. Готовые результаты сохраняются. Повторный полный запуск создаёт новые прогоны, а не продолжает оплаченные реплики предыдущего. Для повтора одного профиля используйте ручную команду `evaluate` ниже. Запущенный скриптом сервер инструментов завершается при выходе и Ctrl+C. Его лог находится в `data/07_checks/tools-<id>.log`. Docker остаётся работать, чтобы можно было открыть Langfuse.
+
+### Однократная установка в WSL
+
+Проверьте, что Docker доступен из Ubuntu:
+
+```bash
+docker compose version
+docker info
+```
+
+Установите uv по [официальной инструкции](https://docs.astral.sh/uv/getting-started/installation/), если команда ещё недоступна:
+
+```bash
+curl -LsSf https://astral.sh/uv/install.sh | sh
+export PATH="$HOME/.local/bin:$PATH"
+```
+
+Если подходящий Node уже установлен в Ubuntu, используйте его. Иначе для Linux x64 можно установить фиксированную версию из [официального архива Node.js](https://nodejs.org/en/download/archive/v22.22.2). Команды выполняются из каталога лабораторной:
+
+```bash
+node_archive=$(mktemp)
+curl -fsSL https://nodejs.org/dist/v22.22.2/node-v22.22.2-linux-x64.tar.xz -o "$node_archive"
+mkdir -p data/runtime/node-linux
+tar -xJf "$node_archive" --strip-components=1 -C data/runtime/node-linux
+rm -- "$node_archive"
+export PATH="$PWD/data/runtime/node-linux/bin:$PATH"
+node --version
+npm --version
+```
+
+Python-пакеты устанавливаются в отдельное Linux-окружение `.venv-wsl`. Оно исключено из Git. Уже существующее `.venv` не изменяется и для запуска в WSL не используется.
+
+```bash
+export UV_PROJECT_ENVIRONMENT="$PWD/.venv-wsl"
+uv venv --python 3.12 .venv-wsl
 uv sync --project source --extra rag --extra dev --frozen
-$py = "$PWD/.venv/Scripts/python.exe"
 npm ci --prefix pi
-& $py -m core.cli doctor
+py="$PWD/.venv-wsl/bin/python"
+"$py" -m core.cli doctor
 ```
 
-Если Node установлен только локально в проекте, сначала добавьте его в PATH. Существующая установка сохранена при очистке:
+`uv` установит Python 3.12, если подходящий интерпретатор отсутствует. `npm ci` нужно выполнить именно в WSL, чтобы зависимости Pi соответствовали Linux. Веса и промежуточные данные остаются в прежнем `data/`. Скрипт `run.sh` сам добавляет локальный Node в PATH. Для ручных команд в новом терминале повторите экспорт PATH и присвоение `py` из примеров выше.
 
-```powershell
-$env:PATH = "$PWD/data/runtime/node;$env:PATH"
-```
-
-Для локального npm вместо `npm` можно использовать сохранённый CLI:
-
-```powershell
-& "$PWD/data/runtime/node/node.exe" "$PWD/data/runtime/node/npm/package/bin/npm-cli.js" ci --prefix pi
-```
-
-`doctor` выводит версию Python, корень проекта, наличие ключа и параметры контекста. Значение ключа он не печатает. Уже установленное окружение пересоздавать не нужно.
+Ниже приведены отдельные команды для ручного запуска и защиты.
 
 ### Настройка и подготовка
 
 Только если `.env` ещё нет:
 
-```powershell
-& $py -m core.cli init-env
+```bash
+"$py" -m core.cli init-env
 ```
 
 Заполните `POLZA_API_KEY`, уникальный `LAB3_TOOL_TOKEN`, подключения к БД и ключи проекта Langfuse. Для записи traces включите `LANGFUSE_ENABLED=true`. Образец находится в `.env.example`. Файл `.env` не публикуйте.
 
-```powershell
+```bash
 docker compose up -d
 docker compose ps
-& $py -m core.cli prepare
-& $py -m core.cli index
-& $py -m core.cli verify-data
-& $py -m core.cli validate
-& $py -m core.cli check-dataset
-& $py -m core.cli smoke --retrieval
+"$py" -m core.cli prepare
+"$py" -m core.cli index
+"$py" -m core.cli verify-data
+"$py" -m core.cli validate
+"$py" -m core.cli check-dataset
+"$py" -m core.cli smoke --retrieval
 ```
 
 `prepare` скачивает PDF и готовит текст. `index` строит индекс и экспортирует векторы. `verify-data` должен вернуть `ok: true` после проверки исходника, страниц, размеров чанков и индекса. Точное новое число чанков нужно брать из этого вывода. `validate` проверяет датасет без LLM. `check-dataset` исполняет эталонные SQL-запросы. `smoke --retrieval` проверяет инструменты, включая ожидаемую SQL-ошибку и восстановление. Эти команды не вызывают платную чат-модель.
 
 Первое создание PostgreSQL volume автоматически исполняет `resources/database.sql`. При обновлении существующего volume примените файл явно:
 
-```powershell
+```bash
 docker compose exec -T postgres psql -U labadmin -d lab3 -v ON_ERROR_STOP=1 -f /docker-entrypoint-initdb.d/01-database.sql
 ```
 
@@ -69,23 +125,23 @@ Langfuse открывается на `http://localhost:3000`. В локальн�
 
 В отдельном терминале:
 
-```powershell
-$py = "$PWD/.venv/Scripts/python.exe"
-& $py -m core.cli serve-tools
+```bash
+py="$PWD/.venv-wsl/bin/python"
+"$py" -m core.cli serve-tools
 ```
 
 Сервис инструментов слушает `127.0.0.1:8765`. Оставьте терминал открытым. В основном терминале создайте учебную сессию и запустите одного из агентов:
 
-```powershell
-& $py -m core.cli reset --session defense-custom-01
-& $py -m core.cli chat --profile custom-tiered --session defense-custom-01
+```bash
+"$py" -m core.cli reset --session defense-custom-01
+"$py" -m core.cli chat --profile custom-tiered --session defense-custom-01
 ```
 
 Для Pi:
 
-```powershell
-& $py -m core.cli reset --session defense-pi-01
-& $py -m core.cli chat --profile pi --session defense-pi-01
+```bash
+"$py" -m core.cli reset --session defense-pi-01
+"$py" -m core.cli chat --profile pi --session defense-pi-01
 ```
 
 `/exit` завершает диалог. Для независимого опыта берите новый session ID. `reset` восстанавливает SQL-схему, но не удаляет историю переписки собственного агента.
@@ -94,11 +150,11 @@ $py = "$PWD/.venv/Scripts/python.exe"
 
 Полное сравнение выполняется в конце работы. Каждая команда имеет предел расходов 20 рублей. Это три отдельных бюджета, а не общий предел на все команды:
 
-```powershell
-$trim = (& $py -m core.cli evaluate --profile custom-trim --max-cost 20 | Select-Object -Last 1)
-$tiered = (& $py -m core.cli evaluate --profile custom-tiered --max-cost 20 | Select-Object -Last 1)
-$piRun = (& $py -m core.cli evaluate --profile pi --max-cost 20 | Select-Object -Last 1)
-& $py -m core.cli compare $trim $tiered $piRun
+```bash
+trim=$("$py" -m core.cli evaluate --profile custom-trim --max-cost 20 | tail -n 1)
+tiered=$("$py" -m core.cli evaluate --profile custom-tiered --max-cost 20 | tail -n 1)
+pi_run=$("$py" -m core.cli evaluate --profile pi --max-cost 20 | tail -n 1)
+"$py" -m core.cli compare "$trim" "$tiered" "$pi_run"
 ```
 
 Перед оплатой сначала нужен небольшой пилот с `--tasks` и меньшим бюджетом. Идентификаторы берите из `resources/tasks.json`. CLI может остановить запуск раньше бюджета, если остатка недостаточно для резерва следующей реплики.
@@ -107,11 +163,11 @@ $piRun = (& $py -m core.cli evaluate --profile pi --max-cost 20 | Select-Object 
 
 Локальные проверки не требуют платных запросов:
 
-```powershell
-& $py -m ruff check source/core
-& $py -m ruff format --check source/core
-& "$PWD/data/runtime/node/node.exe" pi/node_modules/typescript/bin/tsc --project pi/tsconfig.json --noEmit
-& $py -m pytest source/tests/test_core_refactor.py -q
+```bash
+"$py" -m ruff check source/core
+"$py" -m ruff format --check source/core
+node pi/node_modules/typescript/bin/tsc --project pi/tsconfig.json --noEmit
+"$py" -m pytest source/tests/test_core_refactor.py -q
 ```
 
 Тесты по просьбе автора исключены из Git. На новом клоне локального файла тестов не будет.
@@ -120,10 +176,14 @@ $piRun = (& $py -m core.cli evaluate --profile pi --max-cost 20 | Select-Object 
 
 Нумерация относится к стадиям обработки. Служебные установки `models` и `runtime` не являются результатами эксперимента. Дерево показывает ожидаемую структуру после запуска, а не наличие уже готовых результатов.
 
+Промежуточные стадии находятся на одном уровне: `data/01_pdf`, `data/02_converted`, `data/03_cleaned`, `data/04_chunks`, `data/05_index`, `data/06_sessions`, `data/07_checks`. Вложенного каталога `corpus` нет. Экспериментальные результаты и итоговое сравнение находятся отдельно в `results/`.
+
 ```text
 lab3/
 |-- README.md
 |-- compose.yaml
+|-- run.sh                         полный запуск из одного терминала
+|-- .gitattributes                 окончания строк shell-скриптов
 |-- .env.example
 |-- resources/
 |   |-- config.toml                 параметры выполнения
@@ -171,7 +231,7 @@ lab3/
 
 Схемы в README выполнены обычным текстом. Они отображаются без поддержки Mermaid.
 
-Источник: `https://repo.postgrespro.ru/doc/pgsql/17.11/ru/postgres-A4.pdf`. Полный PDF сохраняется в `data/corpus/01_pdf/`. В обработку входят физические страницы 30–89 включительно. Номер физической страницы означает её позицию в PDF, а не напечатанный номер в колонтитуле.
+Источник: `https://repo.postgrespro.ru/doc/pgsql/17.11/ru/postgres-A4.pdf`. Полный PDF сохраняется в `data/01_pdf/`. В обработку входят физические страницы 30–89 включительно. Номер физической страницы означает её позицию в PDF, а не напечатанный номер в колонтитуле.
 
 Перед обработкой проверяется контрольная сумма PDF. Она позволяет убедиться, что скачан именно нужный файл. Ожидаемое значение задано в `resources/config.toml`. При несовпадении обработка останавливается.
 
@@ -179,7 +239,7 @@ lab3/
 
 ## 2. Как PDF превращается в Markdown
 
-`prepare` передаёт каждую выбранную страницу в PyMuPDF4LLM. OCR отключён, используется текстовый слой PDF. Результат до очистки сохраняется отдельным файлом `data/corpus/02_converted/pg17-p0059.md`.
+`prepare` передаёт каждую выбранную страницу в PyMuPDF4LLM. OCR отключён, используется текстовый слой PDF. Результат до очистки сохраняется отдельным файлом `data/02_converted/pg17-p0059.md`.
 
 Затем `normalize_markdown` выполняет следующие действия:
 
@@ -189,7 +249,7 @@ lab3/
 - удаляет пробелы в конце строк
 - приводит переводы строк к одному формату и сокращает избыток пустых строк
 
-Результат сохраняется в `data/corpus/03_cleaned/pg17-p0059.md`. Исходный Markdown остаётся рядом на предыдущей стадии. Семантического переписывания текста моделью нет. Сложная таблица в PDF может конвертироваться неидеально, очистка не восстанавливает её смысл автоматически.
+Результат сохраняется в `data/03_cleaned/pg17-p0059.md`. Исходный Markdown остаётся рядом на предыдущей стадии. Семантического переписывания текста моделью нет. Сложная таблица в PDF может конвертироваться неидеально, очистка не восстанавливает её смысл автоматически.
 
 Для демонстрации откройте два файла рядом в VS Code и сравните их с PDF. Все 60 страниц сохраняются по отдельности, поэтому не нужно искать нужное место в общем текстовом файле.
 
@@ -204,7 +264,7 @@ Markdown сначала делится по заголовкам, затем р�
 | Разбиение и эмбеддинги | Giga Embeddings | Не превышать лимит фрагмента перед кодированием |
 | Окно собственного агента | DeepSeek V4.1 Flash | Оценивать реальный формат сообщений и инструментов |
 
-Чанки находятся в `data/corpus/04_chunks/chunks.json`. У каждого сохранены `chunk_id`, `document_id`, физическая страница, URL источника, заголовки и текст. По этим полям можно найти исходную страницу для любого фрагмента. `manifest.json` рядом сохраняет параметры подготовки и число чанков.
+Чанки находятся в `data/04_chunks/chunks.json`. У каждого сохранены `chunk_id`, `document_id`, физическая страница, URL источника, заголовки и текст. По этим полям можно найти исходную страницу для любого фрагмента. `manifest.json` рядом сохраняет параметры подготовки и число чанков.
 
 `verify-data` записывает в `data/07_checks/pipeline.json` пример token IDs и token pieces для страницы 59, число специальных токенов и максимальную длину чанка. Специальные токены также входят в длину, проверяемую embedding tokenizer. Для защиты откройте JSON, найдите `pg17-p0059` и сопоставьте текст с предыдущей стадией.
 
@@ -222,7 +282,7 @@ Markdown сначала делится по заголовкам, затем р�
 
 Qdrant хранит оба представления и payload в коллекции `lab3_postgres17`. RRF объединяет позиции документов в двух выдачах. Его score не является вероятностью правильного ответа.
 
-После индексации в `data/corpus/05_index/` находятся:
+После индексации в `data/05_index/` находятся:
 
 | Файл | Содержание | Что показать |
 |---|---|---|
@@ -230,9 +290,9 @@ Qdrant хранит оба представления и payload в коллек
 | `vectors.jsonl` | реальные dense и sparse векторы вместе с payload | первую строку и массив dense из 1024 чисел |
 | `vector-export.json` | сведения об экспорте и число точек | полноту выгрузки |
 
-```powershell
-& $py -m core.cli search "GENERATED ALWAYS IDENTITY" --limit 5
-& $py -m core.cli export-index
+```bash
+"$py" -m core.cli search "GENERATED ALWAYS IDENTITY" --limit 5
+"$py" -m core.cli export-index
 ```
 
 `search` возвращает текст, UUID и страницу. `read_doc_page` позволяет после поиска прочитать всю очищенную страницу. Агент получает документацию через эти инструменты, весь PDF в системную инструкцию не помещается.
@@ -384,15 +444,90 @@ Session: один диалог
 Демонстрация многоходового диалога со сжатием контекста и соответствующей сессии Langfuse прямо требуется заданием. Одного ответа в терминале недостаточно.
 
 1. Откройте config и покажите источник PDF, модель, размеры чанков и бюджет окна.
-2. Откройте физическую страницу 59 PDF и соответствующий файл `02_converted/pg17-p0059.md`.
-3. Сравните его с `03_cleaned/pg17-p0059.md` и объясните каждое правило очистки.
-4. Найдите эту страницу в `04_chunks/chunks.json`. Покажите UUID, заголовок и текст. Затем откройте пример токенов в `data/07_checks/pipeline.json`.
-5. Покажите payload и векторы в `05_index/vectors.jsonl`. Выполните `search`, объясните объединение dense и BM25.
+2. Откройте физическую страницу 59 в `data/01_pdf/postgres-17.11-ru.pdf` и файл `data/02_converted/pg17-p0059.md`.
+3. Сравните его с `data/03_cleaned/pg17-p0059.md` и объясните каждое правило очистки.
+4. Найдите эту страницу в `data/04_chunks/chunks.json`. Покажите UUID, заголовок и текст. Затем откройте пример токенов в `data/07_checks/pipeline.json`.
+5. Покажите payload и векторы в `data/05_index/vectors.jsonl`. Выполните `search`, объясните объединение dense и BM25.
 6. Запустите свежую SQL-сессию и многоходовой чат. Например, сначала попросите изучить схему и посчитать клиентов, затем запросите разбиение по городам, затем уточните предыдущий результат.
 7. В Langfuse раскройте вызов MCP, SQL и generation. Для сценария с SQL-ошибкой покажите ошибку инструмента и исправленный запрос.
-8. Запустите длинный сценарий из датасета. Откройте SQLite-журнал, файл `06_sessions/context/` и generation после сжатия. Покажите, что журнал сохранился, а окно изменилось.
+8. Покажите длинный сценарий из датасета. Откройте SQLite-журнал, файл `data/06_sessions/context/` и generation после сжатия. Покажите, что журнал сохранился, а окно изменилось.
 9. Покажите аналогичный диалог Pi и generation его суммаризации.
 10. Откройте manifest, таблицу метрик и конкретные неудачные traces. Объясните ограничения автоматического grader и разницу между измеренной стоимостью и оценкой.
+
+### Подготовка перед защитой
+
+Заранее выполните полный `bash run.sh` и проверьте реальные traces. Выберите пример поиска, восстановление после SQL-ошибки и длинный диалог со сжатием. Запишите их session ID, trace ID и пути файлов. Сохраните скриншоты дерева trace, ошибки SQL, сокращения контекста и сравнительной таблицы. На защите не нужно заново выполнять весь benchmark.
+
+Если нужны только исходник, Markdown и индекс, достаточно `bash run.sh --prepare-only`. Эта команда не создаёт ответы LLM и не заменяет экспериментальные результаты.
+
+### Живой CLI своего агента
+
+Откройте два терминала Ubuntu в WSL в каталоге лабораторной. Это ручная демонстрация диалога, поэтому сервер инструментов запускается отдельно. Полный `run.sh` сам управляет сервером и не должен работать одновременно с этим сценарием.
+
+В первом терминале:
+
+```bash
+cd /mnt/d/projects/university/ITMO_labs/llm-26/projects/aa-chebykin/lab3
+export LANGFUSE_ENABLED=true
+.venv-wsl/bin/python -m core.cli serve-tools
+```
+
+Во втором терминале:
+
+```bash
+cd /mnt/d/projects/university/ITMO_labs/llm-26/projects/aa-chebykin/lab3
+py="$PWD/.venv-wsl/bin/python"
+export LANGFUSE_ENABLED=true
+session="defense-custom-$(date +%Y%m%d-%H%M%S)"
+"$py" -m core.cli reset --session "$session"
+"$py" -m core.cli chat --profile custom-tiered --session "$session"
+```
+
+Последовательно введите в чат:
+
+1. «Изучи схему базы. Покажи имена клиентов из Казани».
+2. «Теперь оставь только тех из них, у кого нет заказов. Сохрани условие по городу».
+3. «Найди в документации объяснение, какой JOIN позволяет сохранить клиентов без заказов. Приведи ссылку на страницу».
+
+Первая реплика демонстрирует схему и SQL. Вторая зависит от предыдущего условия. Третья демонстрирует retrieval и ссылки на документацию. CLI печатает ответ, статус, usage, стоимость и задержку. Вызовы инструментов раскрывайте в Langfuse по напечатанному session ID. Для выхода введите `/exit`.
+
+Для демонстрации восстановления можно отдельно попросить: «Сначала выполни SELECT missing FROM products именно как написано. После ошибки исправь запрос и посчитай количество товаров». Проверьте, что в trace действительно есть неудачный вызов и последующий успешный. Если модель исправила запрос заранее, этот trace не доказывает восстановление после ошибки.
+
+### Живой CLI Pi
+
+Сервер в первом терминале оставьте работающим. После выхода из своего агента выполните во втором терминале:
+
+```bash
+pi_session="defense-pi-$(date +%Y%m%d-%H%M%S)"
+"$py" -m core.cli reset --session "$pi_session"
+"$py" -m core.cli chat --profile pi --session "$pi_session"
+```
+
+Задайте те же три вопроса. Сравните порядок инструментов и ответы, затем откройте сессию Pi в Langfuse. Оба живых диалога оплачиваются через Polza. Ограничения шагов и времени действуют на каждую реплику, но `--max-cost` относится к `evaluate`, а не к интерактивному `chat`.
+
+### Сжатие контекста и результаты
+
+Для сжатия сначала используйте сохранённый длинный диалог из полного прогона. В `turns.jsonl` найдите `long-memory-1` или `long-memory-2`, затем `session_id`, `trace_id` и `context_events`. В событии сокращения указан путь к JSON с окнами до и после. Откройте его вместе с журналом `data/06_sessions/history.sqlite3` в SQLite viewer и соответствующей generation в Langfuse. Покажите, какие сообщения были сокращены и смог ли агент использовать старое условие.
+
+Журнал можно посмотреть и без дополнительных программ через встроенный CLI Python 3.12. После выхода из чата команда ниже показывает полный журнал только что продемонстрированного своего агента:
+
+```bash
+"$py" -m sqlite3 data/06_sessions/history.sqlite3 "SELECT turn_id, message FROM events WHERE session_id = '$session' ORDER BY id"
+```
+
+Для длинного сценария присвойте `$session` его идентификатор из `turns.jsonl` и повторите команду. Сообщения журнала сохраняются целиком, даже если их уже нет в окне модели.
+
+Если нужен отдельный живой запуск длинного сценария, после `/exit` из чата и при работающем сервере выполните:
+
+```bash
+"$py" -m core.cli evaluate --profile custom-tiered --tasks long-memory-1 --label stress --max-cost 10
+```
+
+Этот запуск содержит несколько реплик одного диалога, использует платную модель и сохраняется отдельно от основного сравнения. Срабатывание конкретных уровней зависит от реальной истории. Не утверждайте, что все пять уровней сработали, если этого нет в событиях.
+
+Итоговые таблицы находятся в `results/09_report/report.md`, случаи ошибок в `results/09_report/error_analysis.md`. В Langfuse откройте выбранную сессию, раскройте trace реплики, iteration, generation и tool. Для поиска покажите вложенный retrieval со списком чанков. Для целой задачи покажите `task_result`, для прогона `dataset_run`. У Pi отдельно покажите generation суммаризации, если она сработала в выбранном длинном сценарии.
+
+Завершив демо, в первом терминале остановите сервер через Ctrl+C. Docker можно оставить работающим для просмотра Langfuse.
 
 Для сдачи понадобится отдельный набор материалов защиты. `data/` и `results/` исключены из Git вместе с ключами, весами и кешами. Сформируйте архив промежуточных стадий и выбранных результатов либо отдельно согласуйте публикацию небольшого отчёта со скриншотами. Наличие файлов на своём компьютере не означает, что преподаватель получит их при клонировании репозитория.
 
@@ -404,4 +539,4 @@ Session: один диалог
 
 При очистке 6 ноября удалены предыдущий корпус, старые отчёты, архивы отладки, журналы диалогов и инструментов. Учебные SQL-сессии и коллекция Qdrant сброшены. Старый неиспользуемый volume `lab3_langfuse_pg` удалён. Рабочие пользователи и ключи Langfuse сохранены. Локальная ведомость файловой очистки находится в `data/07_checks/cleanup.json`.
 
-Не удаляйте `data/models`, `data/runtime/node`, `.venv` и `pi/node_modules` ради очистки эксперимента. Они содержат установки, которые нужны для следующего запуска. Не удаляйте Docker volumes других лабораторных.
+Не удаляйте `data/models`, `data/runtime/node`, `.venv-wsl` и `pi/node_modules` ради очистки эксперимента. Они содержат установки, которые нужны для следующего запуска. Не удаляйте Docker volumes других лабораторных.

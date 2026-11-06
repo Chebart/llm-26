@@ -395,7 +395,7 @@ def manifest(settings: Settings, path: Path, profile: str) -> dict:
     }
 
     for name, artifact in {
-        "index": settings.data / "corpus/05_index/index.json",
+        "index": settings.data / "05_index/index.json",
         "pi_lock": settings.root / "pi/package-lock.json",
     }.items():
         result[name + "_sha256"] = (

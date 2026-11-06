@@ -38,7 +38,7 @@ class Retriever:
     def __init__(self, settings: Settings) -> None:
         self.settings = settings
         self.config = settings.retrieval
-        self.directory = settings.data / "corpus"
+        self.directory = settings.data
         self._dense: Any = None
         self._sparse: Any = None
         self._client: QdrantClient | None = None
@@ -361,7 +361,7 @@ class Retriever:
                 "token_pieces": tokenizer.convert_ids_to_tokens(ids[:32]),
             },
             "stages": {
-                stage: f"data/corpus/{stage}"
+                stage: f"data/{stage}"
                 for stage in ("01_pdf", "02_converted", "03_cleaned", "04_chunks", "05_index")
             },
         }
